@@ -1,0 +1,61 @@
+CREATE DATABASE IF NOT EXISTS logistics_db
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
+
+USE logistics_db;
+
+CREATE TABLE IF NOT EXISTS inventory (
+  product_id BIGINT PRIMARY KEY,
+  available_qty INT NOT NULL,
+  reserved_qty INT NOT NULL DEFAULT 0,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS stock_reservations (
+  id CHAR(36) PRIMARY KEY,
+  order_id CHAR(36) NOT NULL UNIQUE,
+  product_id BIGINT NOT NULL,
+  quantity INT NOT NULL,
+  status VARCHAR(30) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS shipments (
+  id CHAR(36) PRIMARY KEY,
+  order_id CHAR(36) NOT NULL UNIQUE,
+  customer_id BIGINT NOT NULL,
+  address_json JSON NULL,
+  payment_status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+  stock_status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+  shipment_status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+  tracking_number VARCHAR(120) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS outbox_events (
+  id CHAR(36) PRIMARY KEY,
+  aggregate_type VARCHAR(50) NOT NULL,
+  aggregate_id CHAR(36) NOT NULL,
+  event_type VARCHAR(80) NOT NULL,
+  topic_name VARCHAR(80) NOT NULL,
+  payload JSON NOT NULL,
+  published TINYINT(1) NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  published_at TIMESTAMP NULL
+);
+
+CREATE TABLE IF NOT EXISTS processed_events (
+  consumer_name VARCHAR(80) NOT NULL,
+  event_id CHAR(36) NOT NULL,
+  processed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (consumer_name, event_id)
+);
+
+INSERT INTO inventory (product_id, available_qty, reserved_qty) VALUES
+(101, 10, 0),
+(102, 50, 0),
+(103, 25, 0),
+(104, 18, 0)
+ON DUPLICATE KEY UPDATE available_qty = VALUES(available_qty), reserved_qty = VALUES(reserved_qty);
