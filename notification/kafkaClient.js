@@ -1,45 +1,45 @@
 const kafka = require("./kafka");
-
+const EmailService = require("./EmailSender");
+const { handleOrder, handlePayment, handleShipment } = require("./topicHandlers");
 const consumer = kafka.consumer({ groupId: "notification-service" });
+
 async function runConsumer() {
   await consumer.connect();
-  await consumer.subscribe({ topic: "Orders", fromBeginning: false });
-  await consumer.subscribe({ topic: "Payments", fromBeginning: false });
-  await consumer.subscribe({ topic: "Shipments", fromBeginning: false });
+  await consumer.subscribe({ topics: ["orders", "payments", "shipments"], fromBeginning: false });
+  const emailService = new EmailService({
+    service: "gmail",
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASSWORD
+  });
 
   await consumer.run({
-    eachMessage: async ({ topic, partition, message }) => {
+    eachMessage: async ({ topic, message }) => {
       try {
-        switch (topic) {
-          case "Orders":
-            let {to, product, quantity} = message.value;  
-            // ...
-            break;
-      
-          case "Payments":
-            let {to, orderId, product, mount, quantity} = message.value;
-            // ...
-            break;
-          case "Shipment":
-            let {to, product, service } = message.value;
-            // ...
-            break;
-          
-          default:
-            break;
-        }
-        
-        
         const data = JSON.parse(message.value.toString());
 
-        console.log("Evento recibido:", data);
+        console.log("Evento recibido:", topic, data);
 
-        const mailOptions = {
-          from: process.env.EMAIL_USER,
-          to: data.to,
-          subject: ``,
-          text: data.text
-        };
+        let mailOptions;
+
+        switch (topic) {
+          case "orders":
+            mailOptions = handleOrder(data);
+            break;
+
+          case "payments":
+            mailOptions = handlePayment(data);
+            break;
+
+          case "shipments":
+            mailOptions = handleShipment(data);
+            break;
+
+          default:
+            console.warn("Topic no manejado:", topic);
+            return;
+        }
+
+        if (!mailOptions) return;
 
         const sent = await emailService.send_email(mailOptions);
 

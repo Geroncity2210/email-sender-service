@@ -1,26 +1,22 @@
 require("dotenv").config();
 const express = require("express");
 const PORT = process.env.API_PORT || 3001;
-
-const EmailService = require("./EmailSender");
-
-const emailService = new EmailService({
-  service: "gmail",
-  user: process.env.EMAIL_USER,
-  pass: process.env.EMAIL_PASSWORD
-});
+const runConsumer = require("./kafkaClient");
 const app = express();
 app.use(express.json());
 
+runConsumer().then(()=>{
+  console.log("Kafka consumer running")
+})
 
-
+/* Ignore esto, son pruebas preliminares
 app.post("/email/send",async (req,res)=>{
 
-  let {subject, text, remitent} = req.body;
+  let {subject, text, addressee} = req.body;
 
   const mailOptions = {
     from: process.env.EMAIL_USER,
-    to: remitent,
+    to: addressee,
     subject,
     text
   }
@@ -36,6 +32,7 @@ app.post("/email/send",async (req,res)=>{
   }
 
 });
+*/
 
 app.get("/check", async (req,res)=>{
   let isConnetionOk = await emailService.verify_connection();

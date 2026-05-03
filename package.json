@@ -5,7 +5,11 @@
   "main": "src/index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "nodemon src/index.js"
+    "start:notification": "nodemon notification/index.js",
+    "start:inventory": "nodemon inventory/index.js",
+    "start:ordering": "nodemon Ordering/index.js",
+    "start:shipping": "nodemon shipping/index.js",
+    "start:billing": "nodemon billing/index.js"
   },
   "keywords": [],
   "author": "",
