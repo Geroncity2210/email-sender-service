@@ -1,15 +1,16 @@
-const mysql = require('mysql2/promise');
-require('dotenv').config();
+const { Pool } = require("pg");
+require("dotenv").config();
 
-const pool = mysql.createPool({
-  host: process.env.LOGISTICS_DB_HOST,
-  port: Number(process.env.LOGISTICS_DB_PORT || 3306),
-  user: process.env.LOGISTICS_DB_USER,
-  password: process.env.LOGISTICS_DB_PASSWORD,
-  database: process.env.LOGISTICS_DB_NAME,
-  waitForConnections: true,
-  connectionLimit: 10,
-  namedPlaceholders: true
+const pool = new Pool({
+  host: process.env.LOGISTICS_DB_HOST || "localhost",
+  port: parseInt(process.env.LOGISTICS_DB_PORT || "5432"),
+  user: process.env.LOGISTICS_DB_USER || "admin",
+  password: process.env.LOGISTICS_DB_PASSWORD || "secret123",
+  database: process.env.LOGISTICS_DB_NAME || "logistics_db",
+});
+
+pool.on("error", (err) => {
+  console.error("[shipping] Error inesperado en pool de DB:", err.message);
 });
 
 module.exports = pool;

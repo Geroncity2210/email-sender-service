@@ -1,83 +1,124 @@
-CREATE DATABASE IF NOT EXISTS commercial_db
-  CHARACTER SET utf8mb4
-  COLLATE utf8mb4_unicode_ci;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
-USE commercial_db;
+-- ============================================================
+-- DB Comercial — PostgreSQL
+-- Compartida por: Ordering y Billing
+--
+-- NOTA: la base de datos 'commercial_db' la crea Docker via
+-- la variable POSTGRES_DB. Este script solo crea tablas y seeds.
+-- ============================================================
 
+-- ── Función reutilizable para actualizar updated_at ──────────
+-- Reemplaza el ON UPDATE CURRENT_TIMESTAMP de MySQL
+CREATE OR REPLACE FUNCTION set_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ── Clientes ─────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS customers (
-  id BIGINT PRIMARY KEY,
-  full_name VARCHAR(120) NOT NULL,
-  email VARCHAR(180) NOT NULL UNIQUE,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  id         BIGINT      PRIMARY KEY,
+  full_name  VARCHAR(120) NOT NULL,
+  email      VARCHAR(180) NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- ── Productos ────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS products (
-  id BIGINT PRIMARY KEY,
-  name VARCHAR(120) NOT NULL,
-  price DECIMAL(12,2) NOT NULL,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  id         BIGINT       PRIMARY KEY,
+  name       VARCHAR(120) NOT NULL,
+  price      DECIMAL(12,2) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- ── Órdenes ──────────────────────────────────────────────────
+-- id: PG genera UUID automáticamente con gen_random_uuid()
+-- No existe ON UPDATE CURRENT_TIMESTAMP en PG → trigger
 CREATE TABLE IF NOT EXISTS orders (
-  id CHAR(36) PRIMARY KEY,
-  customer_id BIGINT NOT NULL,
-  status VARCHAR(30) NOT NULL DEFAULT 'CREATED',
-  total_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
-  idempotency_key VARCHAR(80) NOT NULL UNIQUE,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  id               UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+  customer_id      BIGINT       NOT NULL,
+  status           VARCHAR(30)  NOT NULL DEFAULT 'CREATED',
+  total_amount     DECIMAL(12,2) NOT NULL DEFAULT 0,
+  idempotency_key  VARCHAR(80)  NOT NULL UNIQUE,
+  created_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
   CONSTRAINT fk_orders_customer FOREIGN KEY (customer_id) REFERENCES customers(id)
 );
 
+CREATE OR REPLACE TRIGGER orders_updated_at
+  BEFORE UPDATE ON orders
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- ── Items de orden ────────────────────────────────────────────
+-- BIGSERIAL reemplaza BIGINT AUTO_INCREMENT de MySQL
 CREATE TABLE IF NOT EXISTS order_items (
-  id BIGINT AUTO_INCREMENT PRIMARY KEY,
-  order_id CHAR(36) NOT NULL,
-  product_id BIGINT NOT NULL,
-  quantity INT NOT NULL,
+  id         BIGSERIAL    PRIMARY KEY,
+  order_id   UUID         NOT NULL,
+  product_id BIGINT       NOT NULL,
+  quantity   INT          NOT NULL,
   unit_price DECIMAL(12,2) NOT NULL,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT fk_items_order FOREIGN KEY (order_id) REFERENCES orders(id),
+  created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  CONSTRAINT fk_items_order   FOREIGN KEY (order_id)   REFERENCES orders(id),
   CONSTRAINT fk_items_product FOREIGN KEY (product_id) REFERENCES products(id)
 );
 
+-- ── Pagos ─────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS payments (
-  id CHAR(36) PRIMARY KEY,
-  order_id CHAR(36) NOT NULL UNIQUE,
-  status VARCHAR(30) NOT NULL,
-  amount DECIMAL(12,2) NOT NULL,
+  id           UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id     UUID         NOT NULL UNIQUE,
+  status       VARCHAR(30)  NOT NULL,
+  amount       DECIMAL(12,2) NOT NULL,
   provider_ref VARCHAR(120) NULL,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  updated_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
   CONSTRAINT fk_payments_order FOREIGN KEY (order_id) REFERENCES orders(id)
 );
 
+CREATE OR REPLACE TRIGGER payments_updated_at
+  BEFORE UPDATE ON payments
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- ── Outbox de eventos ─────────────────────────────────────────
+-- JSONB reemplaza JSON de MySQL (más eficiente en PG)
+-- BOOLEAN reemplaza TINYINT(1) de MySQL
 CREATE TABLE IF NOT EXISTS outbox_events (
-  id CHAR(36) PRIMARY KEY,
+  id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   aggregate_type VARCHAR(50) NOT NULL,
-  aggregate_id CHAR(36) NOT NULL,
-  event_type VARCHAR(80) NOT NULL,
-  topic_name VARCHAR(80) NOT NULL,
-  payload JSON NOT NULL,
-  published TINYINT(1) NOT NULL DEFAULT 0,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  published_at TIMESTAMP NULL
+  aggregate_id   UUID        NOT NULL,
+  event_type     VARCHAR(80) NOT NULL,
+  topic_name     VARCHAR(80) NOT NULL,
+  payload        JSONB       NOT NULL,
+  published      BOOLEAN     NOT NULL DEFAULT FALSE,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  published_at   TIMESTAMPTZ NULL
 );
 
+-- ── Eventos procesados (idempotencia de consumers) ────────────
 CREATE TABLE IF NOT EXISTS processed_events (
-  consumer_name VARCHAR(80) NOT NULL,
-  event_id CHAR(36) NOT NULL,
-  processed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  consumer_name VARCHAR(80)  NOT NULL,
+  event_id      VARCHAR(80)  NOT NULL,
+  processed_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
   PRIMARY KEY (consumer_name, event_id)
 );
 
+-- ── Seed data ─────────────────────────────────────────────────
+-- ON CONFLICT reemplaza ON DUPLICATE KEY UPDATE de MySQL
 INSERT INTO customers (id, full_name, email) VALUES
-(1, 'Daniel Safo', 'danielsafo@unisabana.edu.co'),
-(2, 'Daniel Saavedra', 'daniel.saavedra.fon@gmail.com')
-ON DUPLICATE KEY UPDATE full_name = VALUES(full_name), email = VALUES(email);
+  (1, 'Daniel Safo',     'danielsafo@unisabana.edu.co'),
+  (2, 'Daniel Saavedra', 'daniel.saavedra.fon@gmail.com')
+ON CONFLICT (id) DO UPDATE
+  SET full_name = EXCLUDED.full_name,
+      email     = EXCLUDED.email;
 
+-- IDs de producto para usar en Postman: 101, 102, 103, 104
 INSERT INTO products (id, name, price) VALUES
-(101, 'Laptop Lenovo ThinkPad', 4500000.00),
-(102, 'Mouse Inalámbrico Logitech', 85000.00),
-(103, 'Teclado Mecánico Redragon', 220000.00),
-(104, 'Audífonos Bluetooth JBL', 320000.00)
-ON DUPLICATE KEY UPDATE name = VALUES(name), price = VALUES(price);
+  (101, 'Laptop Lenovo ThinkPad',       4500000.00),
+  (102, 'Mouse Inalámbrico Logitech',     85000.00),
+  (103, 'Teclado Mecánico Redragon',     220000.00),
+  (104, 'Audífonos Bluetooth JBL',       320000.00)
+ON CONFLICT (id) DO UPDATE
+  SET name  = EXCLUDED.name,
+      price = EXCLUDED.price;

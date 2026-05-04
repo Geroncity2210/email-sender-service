@@ -1,3 +1,4 @@
+const { randomUUID } = require("crypto");
 const pool = require("./db");
 const { publish } = require("./producer");
 
@@ -18,17 +19,18 @@ async function reserveStock(event) {
     paymentId,
   } = event;
 
-  // ── Idempotencia: verificar si ya procesamos este orderId ──
-  // Usamos un advisory lock de PostgreSQL sobre el orderId
   const lockKey = parseInt(orderId.replace(/-/g, "").slice(0, 8), 16);
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
-    await client.query(`SELECT pg_advisory_xact_lock($1)`, [lockKey]);
+    // pg_advisory_xact_lock es válido en PostgreSQL — previene race conditions
+    await client.query("SELECT pg_advisory_xact_lock($1)", [lockKey]);
 
-    // Verificar si ya hay un envío creado para esta orden (idempotencia)
-    const existing = await client.query("SELECT id FROM shipments WHERE order_id = $1", [orderId]);
+    // ── Idempotencia: verificar en stock_reservations, no en shipments ──
+    const existing = await client.query("SELECT id FROM stock_reservations WHERE order_id = $1", [
+      orderId,
+    ]);
     if (existing.rows.length > 0) {
       console.log(
         `[inventory] ⚠ Stock ya reservado para orderId=${orderId} (idempotencia). Ignorando.`,
@@ -37,18 +39,19 @@ async function reserveStock(event) {
       return;
     }
 
-    // Verificar stock disponible
+    // ── Verificar stock disponible con bloqueo de fila ────────
     const stockRes = await client.query(
-      "SELECT total_stock, reserved FROM inventory WHERE product_id = $1 FOR UPDATE",
+      "SELECT available_qty, reserved_qty FROM inventory WHERE product_id = $1 FOR UPDATE",
       [productId],
     );
 
     if (stockRes.rows.length === 0) {
+      await client.query("ROLLBACK");
       throw new Error(`Producto ${productId} no encontrado en inventario`);
     }
 
-    const { total_stock, reserved } = stockRes.rows[0];
-    const available = total_stock - reserved;
+    const { available_qty, reserved_qty } = stockRes.rows[0];
+    const available = available_qty - reserved_qty;
 
     if (available < quantity) {
       await client.query("ROLLBACK");
@@ -72,10 +75,17 @@ async function reserveStock(event) {
       return;
     }
 
-    // Reservar stock
+    // ── Reservar stock ─────────────────────────────────────────
     await client.query(
-      "UPDATE inventory SET reserved = reserved + $1, updated_at = NOW() WHERE product_id = $2",
+      "UPDATE inventory SET reserved_qty = reserved_qty + $1, updated_at = NOW() WHERE product_id = $2",
       [quantity, productId],
+    );
+
+    // ── Registrar reserva para idempotencia ───────────────────
+    await client.query(
+      `INSERT INTO stock_reservations (id, order_id, product_id, quantity, status)
+       VALUES ($1, $2, $3, $4, 'RESERVED')`,
+      [randomUUID(), orderId, productId, quantity],
     );
 
     await client.query("COMMIT");

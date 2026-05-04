@@ -1,26 +1,79 @@
+version: "3.9"
+
+networks:
+  microservices-net:
+    driver: bridge
+
+volumes:
+  commercial-db-data:
+  logistics-db-data:
+
 services:
+  # ── Zookeeper ───────────────────────────────────────────────
   zookeeper:
-    image: confluentinc/cp-zookeeper:latest
+    image: confluentinc/cp-zookeeper:7.3.3
     container_name: zookeeper
+    networks: [microservices-net]
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
     ports:
-      - 2181:2181
+      - "2181:2181"
 
+  # ── Kafka ───────────────────────────────────────────────────
   kafka-broker-1:
     image: confluentinc/cp-kafka:7.3.3
     container_name: kafka-broker-1
-    depends_on:
-      - zookeeper
+    networks: [microservices-net]
+    depends_on: [zookeeper]
     environment:
       KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://broker:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://kafka-broker-1:29092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
     ports:
       - "9092:9092"
- 
+
+  # ── PostgreSQL Comercial ────────────────────────────────────
+  commercial-db:
+    image: postgres:16
+    container_name: commercial-db
+    networks: [microservices-net]
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: commercial_db
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: secret123
+    ports:
+      - "5432:5432"
+    volumes:
+      - commercial-db-data:/var/lib/postgresql/data
+      - ./infra/commercial.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d commercial_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ── PostgreSQL Logística ────────────────────────────────────
+  logistics-db:
+    image: postgres:16
+    container_name: logistics-db
+    networks: [microservices-net]
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: logistics_db
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: secret123
+    ports:
+      - "5433:5432"
+    volumes:
+      - logistics-db-data:/var/lib/postgresql/data
+      - ./infra/logistics.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d logistics_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 10

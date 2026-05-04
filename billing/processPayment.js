@@ -21,16 +21,15 @@ async function processPayment(event) {
   const existing = await pool.query("SELECT id, status FROM payments WHERE order_id = $1", [
     orderId,
   ]);
-
   if (existing.rows.length > 0) {
     console.log(`[billing] ⚠ Pago ya procesado para orderId=${orderId} (idempotencia). Ignorando.`);
     return;
   }
 
   // ── Simular aprobación del pago ───────────────────────────
-  // En producción aquí iría la integración con PSP (Stripe, PayU, etc.)
-  const approved = true; // Simulamos que siempre aprueba
+  const approved = true;
   const paymentStatus = approved ? "APPROVED" : "REJECTED";
+  const newOrderStatus = approved ? "PAID" : "FAILED";
 
   // ── Persistir pago en transacción ────────────────────────
   const client = await pool.connect();
@@ -38,14 +37,13 @@ async function processPayment(event) {
     await client.query("BEGIN");
 
     const paymentRes = await client.query(
-      `INSERT INTO payments (order_id, amount, status, processed_at)
-       VALUES ($1, $2, $3, NOW())
+      `INSERT INTO payments (order_id, amount, status)
+       VALUES ($1, $2, $3)
        RETURNING *`,
       [orderId, totalPrice, paymentStatus],
     );
+    const payment = paymentRes.rows[0];
 
-    // Actualizar estado de la orden
-    const newOrderStatus = approved ? "PAID" : "FAILED";
     await client.query("UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2", [
       newOrderStatus,
       orderId,
@@ -53,12 +51,11 @@ async function processPayment(event) {
 
     await client.query("COMMIT");
 
-    const payment = paymentRes.rows[0];
     console.log(
       `[billing] Pago ${paymentStatus} | orderId=${orderId} | paymentId=${payment.id} | amount=$${totalPrice}`,
     );
 
-    // ── Publicar evento PaymentProcessed ─────────────────
+    // ── Publicar evento PaymentProcessed ─────────────────────
     const outEvent = {
       eventType: "PaymentProcessed",
       paymentId: payment.id,
@@ -71,7 +68,7 @@ async function processPayment(event) {
       quantity,
       totalPrice,
       paymentStatus,
-      processedAt: payment.processed_at,
+      processedAt: payment.created_at,
     };
 
     await publish("payments", orderId, outEvent);

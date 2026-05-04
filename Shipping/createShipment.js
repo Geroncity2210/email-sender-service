@@ -1,10 +1,10 @@
-const { v4: uuidv4 } = require("uuid");
+const { randomUUID } = require("crypto");
 const pool = require("./db");
 const { publish } = require("./producer");
 
 /**
- * Genera el registro de envío y publica ShipmentCreated.
- * Garantiza idempotencia con índice UNIQUE en order_id.
+ * Genera el registro de envío y publica ShipmentCreated en el tópico shipments.
+ * Garantiza idempotencia con ON CONFLICT (order_id) DO NOTHING.
  */
 async function createShipment(event) {
   const {
@@ -19,16 +19,16 @@ async function createShipment(event) {
     paymentId,
   } = event;
 
-  // Generar código de seguimiento único
-  const trackingCode = `TRK-${Date.now()}-${uuidv4().slice(0, 8).toUpperCase()}`;
+  const trackingNumber = `TRK-${Date.now()}-${randomUUID().slice(0, 8).toUpperCase()}`;
 
   try {
     const res = await pool.query(
-      `INSERT INTO shipments (order_id, product_id, customer_id, quantity, status, tracking_code)
-       VALUES ($1, $2, $3, $4, 'IN_TRANSIT', $5)
+      `INSERT INTO shipments
+         (id, order_id, customer_id, payment_status, stock_status, shipment_status, tracking_number)
+       VALUES ($1, $2, $3, 'APPROVED', 'RESERVED', 'IN_TRANSIT', $4)
        ON CONFLICT (order_id) DO NOTHING
        RETURNING *`,
-      [orderId, productId, customerId, quantity, trackingCode],
+      [randomUUID(), orderId, customerId, trackingNumber],
     );
 
     // Si no insertó nada, ya existía (idempotencia)
@@ -41,7 +41,7 @@ async function createShipment(event) {
 
     const shipment = res.rows[0];
     console.log(
-      `[shipping] Envío creado: ${shipment.id} | tracking=${shipment.tracking_code} | orderId=${orderId} | cliente=${customerEmail}`,
+      `[shipping] Envío creado: ${shipment.id} | tracking=${shipment.tracking_number} | orderId=${orderId} | cliente=${customerEmail}`,
     );
 
     await publish("shipments", orderId, {
@@ -56,8 +56,8 @@ async function createShipment(event) {
       quantity,
       totalPrice,
       paymentId,
-      trackingCode: shipment.tracking_code,
-      status: shipment.status,
+      trackingNumber: shipment.tracking_number,
+      status: shipment.shipment_status,
       createdAt: shipment.created_at,
     });
   } catch (err) {
