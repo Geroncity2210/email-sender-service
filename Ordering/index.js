@@ -42,7 +42,7 @@ async function bootstrap() {
       console.log(`[ordering] HTTP escuchando en puerto ${config.service.port}`);
       console.log("[ordering] Listo para recibir órdenes");
       console.log(
-        "[ordering] Productos disponibles: PROD-001, PROD-002, PROD-003, PROD-004, PROD-005",
+        "[ordering] Productos disponibles: 101, 102, 103, 104, 105",
       );
     });
   } catch (err) {

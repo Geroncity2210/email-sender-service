@@ -1,4 +1,3 @@
-version: "3.8"
 
 networks:
   microservices-net:
@@ -10,18 +9,12 @@ volumes:
 
 services:
   # ── Microservices ───────────────────────────────────────────────
-
   ordering:
     build: ./ordering
     ports:
       - "8080:8080"
     env_file:
       - ./ordering/.env
-    networks:
-      - microservices-net
-    depends_on:
-      commercial-db:
-        condition: service_healthy
 
   billing:
     build: ./billing
@@ -29,11 +22,6 @@ services:
       - "3002:3002"
     env_file:
       - ./billing/.env
-    networks:
-      - microservices-net
-    depends_on:
-      commercial-db:
-        condition: service_healthy
 
   inventory:
     build: ./inventory
@@ -41,11 +29,6 @@ services:
       - "3003:3003"
     env_file:
       - ./inventory/.env
-    networks:
-      - microservices-net
-    depends_on:
-      logistics-db:
-        condition: service_healthy
 
   shipping:
     build: ./shipping
@@ -53,11 +36,6 @@ services:
       - "3004:3004"
     env_file:
       - ./shipping/.env
-    networks:
-      - microservices-net
-    depends_on:
-      logistics-db:
-        condition: service_healthy
 
   notification:
     build: ./notification
@@ -65,17 +43,12 @@ services:
       - "3005:3005"
     env_file:
       - ./notification/.env
-    networks:
-      - microservices-net
-
   # ── PostgreSQL Comercial ────────────────────────────────────
-
   commercial-db:
     image: postgres:16
     container_name: commercial-db
+    networks: [microservices-net]
     restart: unless-stopped
-    networks:
-      - microservices-net
     environment:
       POSTGRES_DB: commercial_db
       POSTGRES_USER: admin
@@ -92,13 +65,11 @@ services:
       retries: 10
 
   # ── PostgreSQL Logística ────────────────────────────────────
-
   logistics-db:
     image: postgres:16
     container_name: logistics-db
+    networks: [microservices-net]
     restart: unless-stopped
-    networks:
-      - microservices-net
     environment:
       POSTGRES_DB: logistics_db
       POSTGRES_USER: admin
