@@ -33,7 +33,7 @@ async function startConsumer() {
     },
   });
 
-  console.log("[shipping] Consumer escuchando tópico: shipments");
+  console.log("[shipping] Consumer escuchando tópico: payments");
 }
 
 module.exports = { startConsumer };

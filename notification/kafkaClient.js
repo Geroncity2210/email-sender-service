@@ -13,25 +13,35 @@ async function runConsumer() {
   });
 
   await consumer.run({
-    eachMessage: async ({ topic, message }) => {
+    eachMessage: async ({ topic, partition, message }) => {
       try {
-        const data = JSON.parse(message.value.toString());
+        const raw = message.value?.toString();
+        console.log(
+          `[notification] ← Recibido de [${topic}] partition=${partition} offset=${message.offset}`,
+        );
+        console.log(`[notification]   payload: ${raw}`);
 
-        console.log("Evento recibido:", topic, data);
+        let event;
+        try {
+          event = JSON.parse(raw);
+        } catch {
+          console.error("[notification] Mensaje inválido (no es JSON), ignorando.");
+          return;
+        }
 
         let mailOptions;
 
         switch (topic) {
           case "orders":
-            mailOptions = handleOrder(data);
+            mailOptions = handleOrder(event);
             break;
 
           case "payments":
-            mailOptions = handlePayment(data);
+            mailOptions = handlePayment(event);
             break;
 
           case "shipments":
-            mailOptions = handleShipment(data);
+            mailOptions = handleShipment(event);
             break;
 
           default:

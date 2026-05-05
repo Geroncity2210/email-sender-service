@@ -9,4 +9,7 @@ module.exports = {
     user: process.env.DB_COMERCIAL_USER || "admin",
     password: process.env.DB_COMERCIAL_PASSWORD || "secret123",
   },
+  service:{
+    port:8080
+  }
 };
