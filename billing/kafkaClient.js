@@ -2,8 +2,17 @@ const { Kafka } = require('kafkajs');
 const config    = require('./config');
 
 const kafka = new Kafka({
-  clientId: 'billing-service',
-  brokers:  [config.kafka.broker],
+  clientId: 'my-service',
+  brokers: [config.kafka.broker],
+
+  ssl: true,
+
+  sasl: {
+    mechanism: 'plain',
+    username: config.kafka.api_key,
+    password: config.kafka.api_secret,
+  },
+
   retry: {
     initialRetryTime: 300,
     retries: 10,

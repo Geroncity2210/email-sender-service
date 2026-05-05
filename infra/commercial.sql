@@ -108,7 +108,8 @@ CREATE TABLE IF NOT EXISTS processed_events (
 -- ON CONFLICT reemplaza ON DUPLICATE KEY UPDATE de MySQL
 INSERT INTO customers (id, full_name, email) VALUES
   (1, 'Daniel Safo',     'danielsafo@unisabana.edu.co'),
-  (2, 'Daniel Saavedra', 'daniel.saavedra.fon@gmail.com')
+  (2, 'Daniel Saavedra', 'daniel.saavedra.fon@gmail.com'),
+  (3, 'Juan Moreno', 'juanpablomorenopatarroyo@gmail.com')
 ON CONFLICT (id) DO UPDATE
   SET full_name = EXCLUDED.full_name,
       email     = EXCLUDED.email;
